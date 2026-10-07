@@ -1,6 +1,6 @@
--- REY2ND-UNIVERSAL v2 | Fixed Fly + Working Slider
+-- REY2ND-UNIVERSAL v4 | Full Feature Pack
 -- Developer: Rey2nd
-print("[REY] universal v2 loaded")
+print("[REY] universal v4 loaded")
 
 if _G.REY_UNIV_CLEANUP then pcall(_G.REY_UNIV_CLEANUP) end
 
@@ -49,10 +49,25 @@ local S = {
     wallHop=false, wallHopPower=50,
     fly=false, flySpeed=100,
     invisible=false,
+    hideFromOthers=false,
     infJump=false,
     speed=false, speedVal=1000,
+    godMode=false,
+    noclip=false,
+    fullbright=false,
+    antiAfk=true,
+    espPlayer=false,
+    hidePopups=false,
+    hitboxExpand=false, hitboxSize=10,
+    jesus=false,
+    antiVoid=false,
+    antiRagdoll=false,
+    infYield=false,
+    clickTP=false,
+    autoRejoin=false,
+    fpsBoost=false,
 }
-local stats = { uptime=os.time(), hops=0, jumps=0 }
+local stats = { uptime=os.time(), hops=0, jumps=0, tps=0 }
 
 local function getChar() return LP.Character end
 local function getHRP() local c=getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
@@ -69,10 +84,10 @@ table.insert(state.conns, RunService.RenderStepped:Connect(function()
 
     local rayOrigin = hrp.Position
     local rayDir = hrp.CFrame.LookVector * 4
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {char}
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    local result = workspace:Raycast(rayOrigin, rayDir, rayParams)
+    local rp = RaycastParams.new()
+    rp.FilterDescendantsInstances = {char}
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    local result = workspace:Raycast(rayOrigin, rayDir, rp)
 
     if result and UIS:IsKeyDown(Enum.KeyCode.Space) then
         pcall(function()
@@ -90,13 +105,15 @@ table.insert(state.conns, RunService.RenderStepped:Connect(function()
 end))
 
 -- ============================================================
---              FLY V2 — FIXED (bisa gerak, ga stuck)
+--              FLY V3
 -- ============================================================
-local flyBV, flyBG, flyConn, flyLoop
+local flyBV, flyBG, flyConn, flyGuard
+local flyActive = false
 
 local function stopFly()
+    flyActive = false
     if flyConn then pcall(function() flyConn:Disconnect() end) flyConn = nil end
-    if flyLoop then pcall(function() flyLoop:Disconnect() end) flyLoop = nil end
+    if flyGuard then pcall(function() flyGuard:Disconnect() end) flyGuard = nil end
     if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
     if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
     local h = getHum()
@@ -105,89 +122,95 @@ end
 
 local function startFly()
     stopFly()
+    flyActive = true
     local hrp = getHRP()
     local hum = getHum()
-    if not hrp then return end
+    if not hrp then
+        task.spawn(function()
+            for i = 1, 20 do
+                task.wait(0.2)
+                if not flyActive then return end
+                if getHRP() then startFly(); return end
+            end
+        end)
+        return
+    end
 
-    -- Set PlatformStand biar physics normal di-disable
     if hum then
         pcall(function()
             hum.PlatformStand = true
-            hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+            hum:ChangeState(Enum.HumanoidStateType.Physics)
         end)
     end
 
-    -- BodyVelocity — force besar biar lawan gravity
     flyBV = Instance.new("BodyVelocity")
     flyBV.Name = "REY_FLY_BV"
     flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
     flyBV.Velocity = Vector3.zero
-    flyBV.P = 1e4  -- P gede biar responsif
+    flyBV.P = 12500
     flyBV.Parent = hrp
 
-    -- BodyGyro — biar tetap tegak
     flyBG = Instance.new("BodyGyro")
     flyBG.Name = "REY_FLY_BG"
     flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    flyBG.P = 1e4
+    flyBG.P = 12500
     flyBG.D = 500
     flyBG.CFrame = hrp.CFrame
     flyBG.Parent = hrp
 
-    -- Loop utama
     flyConn = RunService.RenderStepped:Connect(function()
-        if not S.fly then return end
+        if not flyActive then return end
         local h = getHRP()
-        if not h or not flyBV or not flyBG then return end
+        if not h then return end
+        if not flyBV or not flyBV.Parent then
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.Name = "REY_FLY_BV"
+            flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            flyBV.P = 12500
+            flyBV.Parent = h
+        end
+        if not flyBG or not flyBG.Parent then
+            flyBG = Instance.new("BodyGyro")
+            flyBG.Name = "REY_FLY_BG"
+            flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            flyBG.P = 12500
+            flyBG.D = 500
+            flyBG.Parent = h
+        end
 
-        local moveDir = Vector3.zero
-        local camCF = Cam.CFrame
+        local move = Vector3.zero
+        local cam = Cam.CFrame
+        if UIS:IsKeyDown(Enum.KeyCode.W) then move = move + cam.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then move = move - cam.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then move = move - cam.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then move = move + cam.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0, 1, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then move = move - Vector3.new(0, 1, 0) end
 
-        if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camCF.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camCF.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camCF.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camCF.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
-        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
-
-        if moveDir.Magnitude > 0 then
-            flyBV.Velocity = moveDir.Unit * S.flySpeed
+        if move.Magnitude > 0 then
+            flyBV.Velocity = move.Unit * S.flySpeed
         else
             flyBV.Velocity = Vector3.zero
         end
-        flyBG.CFrame = camCF
+        flyBG.CFrame = CFrame.new(h.Position, h.Position + cam.LookVector)
     end)
 
-    -- Loop guard — re-apply kalau flyBV/BG ke-hapus atau PlatformStand balik
-    flyLoop = RunService.Heartbeat:Connect(function()
-        if not S.fly then return end
-        local h = getHRP()
-        local hum = getHum()
-        if not h then return end
-        -- Re-parent kalau ke-hapus
-        if not h:FindFirstChild("REY_FLY_BV") and flyBV then
-            pcall(function() flyBV.Parent = h end)
-        end
-        if not h:FindFirstChild("REY_FLY_BG") and flyBG then
-            pcall(function() flyBG.Parent = h end)
-        end
-        -- Re-platform stand
-        if hum and not hum.PlatformStand then
-            pcall(function() hum.PlatformStand = true end)
+    flyGuard = RunService.Heartbeat:Connect(function()
+        if not flyActive then return end
+        local h = getHum()
+        if h and not h.PlatformStand then
+            pcall(function() h.PlatformStand = true end)
         end
     end)
 end
 
--- Auto-restart fly kalau karakter respawn
 LP.CharacterAdded:Connect(function()
-    task.wait(0.5)
-    if S.fly then startFly() end
+    task.wait(1)
+    if flyActive then startFly() end
 end)
 
 -- ============================================================
---              INVISIBLE
+--              INVISIBLE (total, keliatan sendiri juga ilang)
 -- ============================================================
 table.insert(state.conns, RunService.Heartbeat:Connect(function()
     if not S.invisible then return end
@@ -197,7 +220,7 @@ table.insert(state.conns, RunService.Heartbeat:Connect(function()
         if p:IsA("BasePart") then
             pcall(function()
                 p.Transparency = 1
-                p.LocalTransparencyModifier = 1
+                p.LocalTransparencyModifier = 0
             end)
         elseif p:IsA("Decal") or p:IsA("Texture") then
             pcall(function() p.Transparency = 1 end)
@@ -206,43 +229,315 @@ table.insert(state.conns, RunService.Heartbeat:Connect(function()
 end))
 
 -- ============================================================
+--              HIDE FROM OTHERS (invisible di mata orang lain,
+--              MASIH KELIATAN di mata sendiri)
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.hideFromOthers then return end
+    local c = getChar()
+    if not c then return end
+    for _, p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.Transparency = 1        -- replikasi ke server & client lain
+                p.LocalTransparencyModifier = -1  -- balikin di client sendiri
+            end)
+        elseif p:IsA("Decal") or p:IsA("Texture") then
+            pcall(function()
+                p.Transparency = 1
+                p.LocalTransparencyModifier = -1
+            end)
+        end
+    end
+end))
+
+-- ============================================================
 --              INFINITE JUMP
 -- ============================================================
-table.insert(state.conns, UIS.JumpRequest:Connect(function()
-    if S.infJump then
+local infJumpConn1, infJumpConn2
+
+local function setupInfJump()
+    if infJumpConn1 then pcall(function() infJumpConn1:Disconnect() end) end
+    if infJumpConn2 then pcall(function() infJumpConn2:Disconnect() end) end
+
+    infJumpConn1 = UIS.JumpRequest:Connect(function()
+        if not S.infJump then return end
         local h = getHum()
         if h then
             pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end)
             stats.jumps = stats.jumps + 1
         end
+    end)
+
+    infJumpConn2 = RunService.RenderStepped:Connect(function()
+        if not S.infJump then return end
+        local h = getHum()
+        if h then
+            local st = h:GetState()
+            if (st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.Landed) and UIS:IsKeyDown(Enum.KeyCode.Space) then
+                pcall(function() h:ChangeState(Enum.HumanoidStateType.Jumping) end)
+            end
+        end
+    end)
+end
+setupInfJump()
+LP.CharacterAdded:Connect(function() task.wait(1); setupInfJump() end)
+
+-- ============================================================
+--              SPEED
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.speed then return end
+    local h = getHum()
+    if h then pcall(function() h.WalkSpeed = S.speedVal end) end
+end))
+
+-- ============================================================
+--              GOD MODE
+-- ============================================================
+local godConn
+local function applyGod()
+    local hum = getHum()
+    if not hum then return end
+    pcall(function()
+        hum.MaxHealth = math.huge
+        hum.Health = math.huge
+        hum.BreakJointsOnDeath = false
+    end)
+    if not godConn then
+        godConn = hum.HealthChanged:Connect(function(h)
+            if S.godMode and h < hum.MaxHealth then
+                pcall(function() hum.Health = hum.MaxHealth end)
+            end
+        end)
+    end
+end
+local function removeGod()
+    if godConn then pcall(function() godConn:Disconnect() end) godConn = nil end
+    local hum = getHum()
+    if hum then pcall(function() hum.MaxHealth = 100; hum.Health = 100 end) end
+end
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.godMode then return end
+    local hum = getHum()
+    if hum and hum.MaxHealth ~= math.huge then applyGod() end
+end))
+LP.CharacterAdded:Connect(function() task.wait(1); if S.godMode then applyGod() end end)
+
+-- ============================================================
+--              NOCLIP
+-- ============================================================
+table.insert(state.conns, RunService.Stepped:Connect(function()
+    if not S.noclip then return end
+    local c = getChar()
+    if not c then return end
+    for _, p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") then pcall(function() p.CanCollide = false end) end
     end
 end))
 
+-- ============================================================
+--              JESUS (WALK ON WATER)
+-- ============================================================
+table.insert(state.conns, RunService.Stepped:Connect(function()
+    if not S.jesus then return end
+    local hrp = getHRP()
+    if not hrp then return end
+    local ray = Ray.new(hrp.Position, Vector3.new(0, -6, 0))
+    local hit, pos = workspace:FindPartOnRay(ray, getChar())
+    if hit and pos then
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+    end
+end))
+
+-- ============================================================
+--              ANTI VOID (auto TP kalau jatuh)
+-- ============================================================
 table.insert(state.conns, RunService.Heartbeat:Connect(function()
-    if not S.infJump then return end
-    local h = getHum()
-    if h then
+    if not S.antiVoid then return end
+    local hrp = getHRP()
+    if not hrp then return end
+    if hrp.Position.Y < -50 then
         pcall(function()
-            if h:GetState() == Enum.HumanoidStateType.Freefall then
-                h:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
+            hrp.CFrame = CFrame.new(0, 50, 0)
+            hrp.Velocity = Vector3.zero
         end)
     end
 end))
 
 -- ============================================================
---              SPEED — FIXED (langsung apply)
+--              ANTI RAGDOLL
 -- ============================================================
 table.insert(state.conns, RunService.Heartbeat:Connect(function()
-    if not S.speed then return end
-    local h = getHum()
-    if h then
-        pcall(function() h.WalkSpeed = S.speedVal end)
+    if not S.antiRagdoll then return end
+    local hum = getHum()
+    if hum then
+        pcall(function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        end)
     end
 end))
 
 -- ============================================================
---              UI (FIXED MINIMIZE + SLIDER)
+--              INFINITE YIELD (no fall damage)
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.infYield then return end
+    local hum = getHum()
+    if hum then
+        pcall(function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        end)
+    end
+end))
+
+-- ============================================================
+--              CLICK TELEPORT (Ctrl + Click)
+-- ============================================================
+table.insert(state.conns, UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if not S.clickTP then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+        local mouse = LP:GetMouse()
+        local target = mouse.Hit.Position
+        local hrp = getHRP()
+        if hrp then
+            hrp.CFrame = CFrame.new(target + Vector3.new(0, 3, 0))
+            stats.tps = stats.tps + 1
+        end
+    end
+end))
+
+-- ============================================================
+--              FULLBRIGHT
+-- ============================================================
+local originalLighting = {}
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.fullbright then return end
+    pcall(function()
+        local L = game:GetService("Lighting")
+        L.Ambient = Color3.fromRGB(255,255,255)
+        L.OutdoorAmbient = Color3.fromRGB(255,255,255)
+        L.Brightness = 2
+        L.FogEnd = 100000
+        L.GlobalShadows = false
+        for _, e in ipairs(L:GetChildren()) do
+            if e:IsA("Atmosphere") then e.Density = 0 end
+        end
+    end)
+end))
+
+-- ============================================================
+--              HITBOX EXPANDER
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if S.hitboxExpand then
+                    pcall(function()
+                        hrp.Size = Vector3.new(S.hitboxSize, S.hitboxSize, S.hitboxSize)
+                        hrp.Transparency = 0.7
+                        hrp.CanCollide = false
+                    end)
+                else
+                    pcall(function()
+                        if hrp.Size ~= Vector3.new(2, 2, 1) then
+                            hrp.Size = Vector3.new(2, 2, 1)
+                            hrp.Transparency = 1
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end))
+
+-- ============================================================
+--              ESP PLAYER
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            local old = plr.Character:FindFirstChild("REY_ESP")
+            if old and not S.espPlayer then old:Destroy() end
+            if S.espPlayer and not plr.Character:FindFirstChild("REY_ESP") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "REY_ESP"
+                hl.FillColor = C.accent
+                hl.OutlineColor = C.accent2
+                hl.FillTransparency = 0.5
+                hl.Parent = plr.Character
+            end
+        end
+    end
+end))
+
+-- ============================================================
+--              HIDE POPUPS
+-- ============================================================
+local HIDE_KW = {"popup","notification","notif","toast","banner"}
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.hidePopups then return end
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, d in ipairs(pg:GetDescendants()) do
+        if d:IsA("Frame") or d:IsA("TextLabel") then
+            local n = (d.Name or ""):lower()
+            for _, kw in ipairs(HIDE_KW) do
+                if n:find(kw, 1, true) then
+                    pcall(function() d.Visible = false end)
+                    break
+                end
+            end
+        end
+    end
+end))
+
+-- ============================================================
+--              FPS BOOST
+-- ============================================================
+table.insert(state.conns, RunService.Heartbeat:Connect(function()
+    if not S.fpsBoost then return end
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") then
+                v.Enabled = false
+            elseif v:IsA("Decal") or v:IsA("Texture") then
+                v.Transparency = 1
+            end
+        end
+    end)
+end))
+
+-- ============================================================
+--              AUTO REJOIN
+-- ============================================================
+LP.AncestryChanged:Connect(function()
+    if S.autoRejoin and not LP:IsDescendantOf(game) then
+        pcall(function()
+            game:GetService("TeleportService"):Teleport(game.PlaceId, LP)
+        end)
+    end
+end)
+
+-- ============================================================
+--              ANTI AFK
+-- ============================================================
+LP.Idled:Connect(function()
+    if S.antiAfk then
+        local VU = game:GetService("VirtualUser")
+        VU:CaptureController(); VU:ClickButton2(Vector2.new())
+    end
+end)
+
+-- ============================================================
+--              UI
 -- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "REY_UNIVERSAL"
@@ -254,8 +549,8 @@ gui.Parent = uiParent
 table.insert(state.guis, gui)
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 320, 0, 460)
-main.Position = UDim2.new(0, 20, 0.5, -230)
+main.Size = UDim2.new(0, 340, 0, 500)
+main.Position = UDim2.new(0.5, -170, 0.5, -250)
 main.BackgroundColor3 = C.bg
 main.BorderSizePixel = 0
 main.Active = true
@@ -264,7 +559,6 @@ main.Parent = gui
 local mc = Instance.new("UICorner"); mc.CornerRadius = UDim.new(0, 12); mc.Parent = main
 local ms = Instance.new("UIStroke"); ms.Color = C.accent; ms.Thickness = 1.5; ms.Parent = main
 
--- HEADER
 local header = Instance.new("Frame")
 header.Name = "Header"
 header.Size = UDim2.new(1, 0, 0, 40)
@@ -278,7 +572,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -80, 1, 0)
 title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "REY2ND  ✦  UNIVERSAL v2"
+title.Text = "REY2ND  ✦  UNIVERSAL v4"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 11
@@ -309,7 +603,6 @@ closeBtn.TextSize = 12
 closeBtn.Parent = header
 local cbc = Instance.new("UICorner"); cbc.CornerRadius = UDim.new(0, 6); cbc.Parent = closeBtn
 
--- CONTENT WRAPPER (yang di-hide saat minimize)
 local contentWrap = Instance.new("Frame")
 contentWrap.Name = "ContentWrap"
 contentWrap.Size = UDim2.new(1, 0, 1, -40)
@@ -322,30 +615,26 @@ sf.Size = UDim2.new(1, -20, 1, -70)
 sf.Position = UDim2.new(0, 10, 0, 5)
 sf.BackgroundTransparency = 1
 sf.BorderSizePixel = 0
-sf.ScrollBarThickness = 4
-sf.ScrollBarImageColor3 = C.accent
+sf.ScrollBarThickness = 5
+sf.ScrollBarImageColor3 = C.accent2
 sf.CanvasSize = UDim2.new(0, 0, 0, 0)
 sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+sf.ScrollingDirection = Enum.ScrollingDirection.Y
 sf.Parent = contentWrap
+
 local layout = Instance.new("UIListLayout")
 layout.Padding = UDim.new(0, 8)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = sf
 
-local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, -20, 0, 20)
-footer.Position = UDim2.new(0, 10, 1, -30)
-footer.BackgroundTransparency = 1
-footer.Text = "Developer: Rey2nd"
-footer.TextColor3 = C.gold
-footer.Font = Enum.Font.GothamBold
-footer.TextSize = 11
-footer.TextXAlignment = Enum.TextXAlignment.Center
-footer.Parent = contentWrap
+local pad = Instance.new("UIPadding")
+pad.PaddingTop = UDim.new(0, 4)
+pad.PaddingBottom = UDim.new(0, 30)
+pad.Parent = sf
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, -20, 0, 18)
-statusLabel.Position = UDim2.new(0, 10, 1, -50)
+statusLabel.Position = UDim2.new(0, 10, 1, -46)
 statusLabel.BackgroundTransparency = 1
 statusLabel.Text = "Ready"
 statusLabel.TextColor3 = C.dim
@@ -354,7 +643,17 @@ statusLabel.TextSize = 10
 statusLabel.TextXAlignment = Enum.TextXAlignment.Center
 statusLabel.Parent = contentWrap
 
--- FLOATING BTN
+local footer = Instance.new("TextLabel")
+footer.Size = UDim2.new(1, -20, 0, 20)
+footer.Position = UDim2.new(0, 10, 1, -26)
+footer.BackgroundTransparency = 1
+footer.Text = "Developer: Rey2nd"
+footer.TextColor3 = C.gold
+footer.Font = Enum.Font.GothamBold
+footer.TextSize = 11
+footer.TextXAlignment = Enum.TextXAlignment.Center
+footer.Parent = contentWrap
+
 local fBtn = Instance.new("TextButton")
 fBtn.Size = UDim2.new(0, 50, 0, 50)
 fBtn.Position = UDim2.new(0, 20, 0.5, -25)
@@ -371,10 +670,9 @@ fBtn.Parent = gui
 local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(0, 10); fc.Parent = fBtn
 local fs = Instance.new("UIStroke"); fs.Color = C.accent2; fs.Thickness = 2; fs.Parent = fBtn
 
--- MINIMIZE LOGIC (FIXED — nggak nyampur)
 local isMin = false
-local MAX_SIZE = UDim2.new(0, 320, 0, 460)
-local MIN_SIZE = UDim2.new(0, 320, 0, 40)
+local MAX_SIZE = UDim2.new(0, 340, 0, 500)
+local MIN_SIZE = UDim2.new(0, 340, 0, 40)
 
 minBtn.MouseButton1Click:Connect(function()
     isMin = not isMin
@@ -397,7 +695,6 @@ end)
 fBtn.MouseButton1Click:Connect(function()
     main.Visible = true
     fBtn.Visible = false
-    -- reset ke full
     if isMin then
         isMin = false
         main.Size = MAX_SIZE
@@ -407,7 +704,7 @@ fBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
---              UI BUILDERS
+--              BUILDERS
 -- ============================================================
 local function section(t)
     local l = Instance.new("TextLabel")
@@ -460,7 +757,6 @@ local function checkbox(name, default, cb)
     end)
 end
 
--- SLIDER FIXED — bisa digeser + callback real-time
 local function slider(name, minV, maxV, defV, cb, formatFn)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, -8, 0, 58)
@@ -470,30 +766,28 @@ local function slider(name, minV, maxV, defV, cb, formatFn)
     local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0, 8); rc.Parent = row
 
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -20, 0, 18)
+    lbl.Size = UDim2.new(1, -80, 0, 18)
     lbl.Position = UDim2.new(0, 14, 0, 4)
     lbl.BackgroundTransparency = 1
-    lbl.Text = name .. ": " .. (formatFn and formatFn(defV) or defV)
+    lbl.Text = name
     lbl.TextColor3 = C.text
     lbl.Font = Enum.Font.GothamMedium
     lbl.TextSize = 12
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
 
-    -- VALUE DISPLAY (kanan)
     local valDisplay = Instance.new("TextLabel")
-    valDisplay.Size = UDim2.new(0, 60, 0, 18)
-    valDisplay.Position = UDim2.new(1, -74, 0, 4)
+    valDisplay.Size = UDim2.new(0, 70, 0, 18)
+    valDisplay.Position = UDim2.new(1, -84, 0, 4)
     valDisplay.BackgroundTransparency = 1
-    valDisplay.Text = tostring(defV)
-    valDisplay.TextColor3 = C.accent
+    valDisplay.Text = formatFn and formatFn(defV) or tostring(defV)
+    valDisplay.TextColor3 = C.accent2
     valDisplay.Font = Enum.Font.GothamBold
     valDisplay.TextSize = 12
     valDisplay.TextXAlignment = Enum.TextXAlignment.Right
     valDisplay.Parent = row
 
-    -- TRACK
-    local track = Instance.new("TextButton")  -- pakai TextButton biar capture input
+    local track = Instance.new("TextButton")
     track.Size = UDim2.new(1, -28, 0, 16)
     track.Position = UDim2.new(0, 14, 0, 34)
     track.BackgroundColor3 = C.bg
@@ -503,7 +797,6 @@ local function slider(name, minV, maxV, defV, cb, formatFn)
     track.Parent = row
     local trc = Instance.new("UICorner"); trc.CornerRadius = UDim.new(1, 0); trc.Parent = track
 
-    -- FILL
     local fill = Instance.new("Frame")
     fill.Size = UDim2.new((defV - minV) / (maxV - minV), 0, 1, 0)
     fill.BackgroundColor3 = C.accent
@@ -511,7 +804,6 @@ local function slider(name, minV, maxV, defV, cb, formatFn)
     fill.Parent = track
     local flc = Instance.new("UICorner"); flc.CornerRadius = UDim.new(1, 0); flc.Parent = fill
 
-    -- KNOB
     local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 20, 0, 20)
     knob.Position = UDim2.new((defV - minV) / (maxV - minV), 0, 0.5, -10)
@@ -522,18 +814,15 @@ local function slider(name, minV, maxV, defV, cb, formatFn)
     local knc = Instance.new("UICorner"); knc.CornerRadius = UDim.new(1, 0); knc.Parent = knob
 
     local dragging = false
-
     local function updateFromX(absX)
         local trackAbs = track.AbsolutePosition.X
         local trackWidth = track.AbsoluteSize.X
         if trackWidth <= 0 then return end
         local rel = math.clamp((absX - trackAbs) / trackWidth, 0, 1)
-        local val = minV + rel * (maxV - minV)
-        val = math.floor(val)
+        local val = math.floor(minV + rel * (maxV - minV))
         fill.Size = UDim2.new(rel, 0, 1, 0)
         knob.Position = UDim2.new(rel, 0, 0.5, -10)
-        valDisplay.Text = tostring(val)
-        lbl.Text = name .. ": " .. (formatFn and formatFn(val) or val)
+        valDisplay.Text = formatFn and formatFn(val) or tostring(val)
         if cb then cb(val) end
     end
 
@@ -543,22 +832,15 @@ local function slider(name, minV, maxV, defV, cb, formatFn)
             updateFromX(input.Position.X)
         end
     end)
-
     UIS.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             updateFromX(input.Position.X)
         end
     end)
-
     UIS.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
-    end)
-
-    -- support touch langsung di track
-    track.MouseButton1Down:Connect(function()
-        dragging = true
     end)
 end
 
@@ -569,13 +851,9 @@ section("MOVE")
 checkbox("Wall Hop", false, function(v) S.wallHop = v end)
 slider("Wall Hop Power", 10, 200, 50, function(v) S.wallHopPower = v end)
 
-checkbox("Fly V2 (Fixed)", false, function(v)
+checkbox("Fly V3 (Fixed)", false, function(v)
     S.fly = v
-    if v then
-        startFly()
-    else
-        stopFly()
-    end
+    if v then startFly() else stopFly() end
 end)
 slider("Fly Speed", 20, 500, 100, function(v) S.flySpeed = v end)
 
@@ -593,26 +871,66 @@ slider("Speed Value", 100, 100000000, 1000, function(v)
         if h then h.WalkSpeed = v end
     end
 end, function(v)
-    if v >= 1000000 then
-        return string.format("%.1fM", v / 1000000)
-    elseif v >= 1000 then
-        return string.format("%.1fK", v / 1000)
+    if v >= 1000000 then return string.format("%.1fM", v / 1000000)
+    elseif v >= 1000 then return string.format("%.1fK", v / 1000)
     end
     return tostring(v)
 end)
 
-section("VISUAL")
-checkbox("Invisible (No Visual)", false, function(v) S.invisible = v end)
+checkbox("Click Teleport (Ctrl+Click)", false, function(v) S.clickTP = v end)
 
--- Update status live
+section("SURVIVAL")
+checkbox("God Mode", false, function(v)
+    S.godMode = v
+    if v then applyGod() else removeGod() end
+end)
+checkbox("Noclip", false, function(v) S.noclip = v end)
+checkbox("Jesus (Walk Water)", false, function(v) S.jesus = v end)
+checkbox("Anti Void", false, function(v) S.antiVoid = v end)
+checkbox("Anti Ragdoll", false, function(v) S.antiRagdoll = v end)
+checkbox("Infinite Yield (No Fall Dmg)", false, function(v) S.infYield = v end)
+
+section("HIDE")
+checkbox("Invisible (Total)", false, function(v) S.invisible = v end)
+checkbox("Hide From Others (Keliatan Sendiri)", false, function(v) S.hideFromOthers = v end)
+checkbox("Hide Popups", false, function(v) S.hidePopups = v end)
+
+section("COMBAT")
+checkbox("Hitbox Expander", false, function(v) S.hitboxExpand = v end)
+slider("Hitbox Size", 2, 30, 10, function(v) S.hitboxSize = v end)
+
+section("VISUAL")
+checkbox("ESP Player", false, function(v) S.espPlayer = v end)
+checkbox("Fullbright", false, function(v) S.fullbright = v end)
+checkbox("FPS Boost", false, function(v) S.fpsBoost = v end)
+
+section("UTILITY")
+checkbox("Anti AFK", true, function(v) S.antiAfk = v end)
+checkbox("Auto Rejoin", false, function(v) S.autoRejoin = v end)
+
+local destroyBtn = Instance.new("TextButton")
+destroyBtn.Size = UDim2.new(1, -8, 0, 34)
+destroyBtn.BackgroundColor3 = C.danger
+destroyBtn.Text = "🗑️ HAPUS SCRIPT"
+destroyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+destroyBtn.Font = Enum.Font.GothamBold
+destroyBtn.TextSize = 12
+destroyBtn.BorderSizePixel = 0
+destroyBtn.Parent = sf
+local dbc = Instance.new("UICorner"); dbc.CornerRadius = UDim.new(0, 8); dbc.Parent = destroyBtn
+destroyBtn.MouseButton1Click:Connect(function()
+    _G.REY_UNIV_CLEANUP()
+    _G.REY_UNIV_CLEANUP = nil
+end)
+
 task.spawn(function()
     while state.running and gui.Parent do
         pcall(function()
-            statusLabel.Text = string.format("Hops: %d | Jumps: %d | Uptime: %ds",
-                stats.hops, stats.jumps, os.time() - stats.uptime)
+            statusLabel.Text = string.format("Hops: %d | Jumps: %d | TPs: %d | %ds",
+                stats.hops, stats.jumps, stats.tps, os.time() - stats.uptime)
         end)
         task.wait(0.5)
     end
 end)
 
-print("[REY] universal v2 ready")
+print("[REY] universal v4 ready")
